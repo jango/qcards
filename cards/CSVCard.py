@@ -1,14 +1,39 @@
+"""
+This program is free software: you can redistribute it and/or modify
+it under the terms of the GNU General Public License as published by
+the Free Software Foundation, either version 3 of the License, or
+(at your option) any later version.
+
+This program is distributed in the hope that it will be useful,
+but WITHOUT ANY WARRANTY; without even the implied warranty of
+MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+GNU General Public License for more details.
+
+You should have received a copy of the GNU General Public License
+along with this program.  If not, see <http://www.gnu.org/licenses/>.
+"""
+
 import csv
 import os.path
-from utils import convert_str
+from utils import convert_str, render_string
+
+OPTIONS = [   
+            'front_fields',
+            'back_fields',
+            'front_mask',
+            'back_mask',
+            'filename_field'
+          ]
 
 class CSVCard:
-    def __init__(self, file_name, card_front, card_back):
+    def __init__(self, mapping, csv_line):
         """Initialize CSV flash card."""
-        self.file_name = file_name
+        self.csv_line = csv_line
+        self.file_name = self.csv_line[mapping['filename_field']]
+
         self.card_props = {
-            'card_front': card_front,
-            'card_back': card_back
+            'card_front' : render_string(mapping['front_mask'], mapping['front_fields'], csv_line),
+            'card_back' : render_string(mapping['back_mask'], mapping['back_fields'], csv_line)
         }
 
     def _render(self):
@@ -41,13 +66,3 @@ class CSVCard:
             
                 for card in file_dic[fl]:
                    writer.writerow([v.encode('utf8') for v in card._render()])
-        
-
-
-if __name__ == "__main__":
-    # Test card rendering.
-    card_a = CSVCard("file_a", r'header', r'footer')
-    card_b = CSVCard("file_b", r'header', r'footer')
-    card_a.dump_cards(r'/tmp', r'/tmp', [card_a, card_b])
-
-

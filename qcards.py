@@ -18,99 +18,18 @@ import os
 import re
 import csv
 import codecs
+import logging
 import argparse
 import ConfigParser
-from cards import LaTeXCard
 from cards import CSVCard
+from cards import LaTeXCard
+from cards.utils import get_abs_path, parse_mappings
 
-def generate_latex_card(card):
-    card = dict(card)
-    b = re.compile(ur"\$(.{1})", flags=re.UNICODE)
-    u = re.compile(ur"\_(.{1})")
-    for k in card.keys():
-        card[k] = b.sub(r'{\\bf \1}', card[k])
-        card[k] = u.sub(r'\\underline{\1}', card[k])
-
-    return CARD_TEMPLATE_LATEX % (
-                                    card["SetNameEng"] + "/" + card["SetNameMac"],
-                                    card["TypeNameEng"] + "/" + card["TypeNameMac"],
-                                    card["WordEng"], card["WordMac"]
-                                 )
-
-def wrap_latex_cards(cards, file_name):
-    lines = open(LATEX_TEMPLATE_FILE, "rb").readlines()
-    data = "\n".join(lines).replace(u"%__CARDS__%", cards)
-    codecs.getwriter('utf-8')(file(os.path.join(os.path.dirname(os.path.realpath(__file__)), 'output', 'latex', file_name + '.tex'), 'w')).write(data)
-
-def generate_anki_card(card):
-    card = dict(card)
-    b = re.compile(ur"\$(.{1})", flags=re.UNICODE)
-    u = re.compile(ur"\_(.{1})")
-
-    for k in card.keys():
-        card[k] = b.sub(r'<span style="font-weight:600;">\1</span>', card[k])
-        card[k] = u.sub(r'<span style="text-decoration: underline;">\1</span>', card[k])
-
-    return [[card["WordEng"] + "<br>" + "[" + card["SetNameEng"] + " - " + card["TypeNameEng"] + "]",
-            card["WordMac"] + "<br>" + "[" + card["SetNameMac"] + " - " + card["TypeNameMac"] + "]"]]
-
-
-def wrap_anki_cards(cards, file_name):
-    with open(os.path.join(os.path.dirname(os.path.realpath(__file__)), 'output', 'anki', file_name + '.csv'), 'wb') as csvfile:
-        writer = csv.writer(csvfile, delimiter=',', quotechar='"', quoting=csv.QUOTE_MINIMAL)   
-        
-        cards = [["[Copyright & License Notice]{LaTeX template is copyrighted by its author and licensed under GPL. Rendered documents and code used to generate them is copyrighted and is distributed under GNU General Public License. If you have any questions, please contact the author at nikita [at] pchelin.ca]", "Copyright & License Notice"]] + cards
-
-        for card in cards:
-            writer.writerow([v.encode('utf8') for v in card])
-
-
-
-def main():
-    # Read dictionary of words and generate files.
-    vocab_dict = {}
-    latex_cards = ""
-    anki_cards = []
-    set_name = None
-    filename = 0
-
-    with open(VOCAB_FILE, 'rb') as csvfile:
-        reader = csv.reader(csvfile, delimiter=' ', quotechar='|')
-        for row in reader:
-            a_card = {
-                "SetNameEng"  : unicode(row[0], 'utf-8'),
-                "SetNameMac"  : unicode(row[1], 'utf-8'),
-                "TypeNameEng" : unicode(row[2], 'utf-8'),
-                "TypeNameMac" : unicode(row[3], 'utf-8'),
-                "WordMac" : unicode(row[4], 'utf-8'),
-                "WordEng" : unicode(row[5], 'utf-8')
-            }
-
-            # Save cards for each of the sets.
-            if set_name is not None and set_name != a_card["SetNameEng"]:
-                wrap_latex_cards(latex_cards, set_name)
-                latex_cards = generate_latex_card(a_card)
-                wrap_anki_cards(anki_cards, set_name)
-                anki_cards = generate_anki_card(a_card)
-            else:
-                latex_cards += generate_latex_card(a_card)
-                anki_cards += generate_anki_card(a_card)
-
-            set_name = a_card["SetNameEng"]
-    
-    # Last set.
-    wrap_latex_cards(latex_cards, set_name)
-    wrap_anki_cards(anki_cards, set_name)
-
-    # Attempt to generate PDFs from Latex.
-    pdf_dir = os.path.join(os.path.dirname(os.path.realpath(__file__)), 'output', 'pdf')
-
-    for f in os.listdir(os.path.join(os.path.dirname(os.path.realpath(__file__)), 'output', 'latex')):
-        if f.endswith(".tex"):
-            file_dir = os.path.join(os.path.dirname(os.path.realpath(__file__)), 'output', 'latex', f)
-
-            cmd = "latex --output-format=pdf --output-directory=\"" + pdf_dir + "\" \"" + file_dir + "\""
-            os.system(cmd)
+# Setup logging.
+FORMAT = '%(asctime)-15s %(levelname)s %(message)s'
+logging.basicConfig(format=FORMAT)
+logger = logging.getLogger('qcards')
+logger.setLevel(logging.INFO)
 
 def run(args):
     loc = os.path.join(os.path.dirname(os.path.abspath(__file__)))
@@ -118,33 +37,120 @@ def run(args):
 
     config = ConfigParser.ConfigParser()
     
-    cfg_path = os.path.normpath(os.path.join(loc, args.config))
+    # Figure out absolute path to the configuration file.
+    cfg_path = get_abs_path(args.config, loc)
+           
     try:
         config.readfp(open(cfg_path))
     except Exception as e:
-        print "Can't read config file at %s" % cfg_path
-        print (e)
+        logger.error("Can't read config file at %s" % cfg_path)
+        logger.error(e)
         return
 
-    # Mandatory parameters check.
+    # General parameters check.
+    if not config.has_section('general'):
+        logger.error("Config must have a 'general' section.")
+        return
+    else:
+        if not config.has_option('general', 'output_dir'):
+            logger.error("Section 'general' of the config file must have 'output_dir' parameter.")
+            return
+        else:
+            # Figure out absolute path to the output_dir.
+            output_dir = get_abs_path(config.get('general', 'output_dir'), os.path.dirname(cfg_path))
 
-    # Output directory.
-    
-    # Input file.
+            if not os.path.exists(output_dir):
+                logger.error("Output directory '%s' does not exist." % output_dir)
+                return 
 
-    # Side A mapping.
+        if not config.has_option('general', 'input_file'):
+            logger.error("Section 'general' of the config file must have 'input_file' parameter.")
+            return
+        else:
+            # Figure out absolute path to the input_file.
+            input_file = get_abs_path(config.get('general', 'input_file'), os.path.dirname(cfg_path))
 
-    # Side B mapping.
+            if not os.path.exists(input_file):
+                logger.error("Input file '%s' does not exist." % input_file)
+                return 
 
-    # Check number of fields, and masking for each field.
+    # Parse some settings for the input file.
+    try:
+        QUOTE_CHAR = config.get('general', 'csv_quotechar').strip('"')
+    except:
+        QUOTE_CHAR = '"'
 
-    #with open(VOCAB_FILE, 'rb') as csvfile:
-        #reader = csv.reader(csvfile, delimiter=' ', quotechar='|')
-        #for row in reader:
+    try:
+        DELIMITER =  config.get('general', 'csv_delimiter').strip('"')
+    except:
+        DELIMITER = ','
 
+    try:
+        HAS_HEADER = config.getboolean('general', 'csv_hasheader')
+    except:
+        HAS_HEADER = True
+
+    logger.info("Configured with the following parameters:")
+    logger.info("Output directory:\n%s" % output_dir)
+    logger.info("Input file:\n%s" % input_file)
+
+
+    # Configure each card type.
+    card_types = {}
+    card_options = {}
+
+    if config.has_section('latex'):
+        card_types[LaTeXCard] = dict(config.items('latex'))
+
+    if config.has_section('csv'):
+        card_types[CSVCard] = dict(config.items('csv'))
+
+    if (len(card_types) == 0):
+        logger.error("Either 'latex' or 'csv' section must be present in the configuration file.")
+        return
+        
+    logger.info("Rendering cards...")
+
+    try:
+        # Parse mappings.
+        for card in card_types:
+            card_options[card.__name__] = parse_mappings(card_types[card], card)
+
+        # Read CSV.
+
+        card_array = {}
+        with open(input_file, 'rb') as csvfile:
+            reader = csv.reader(csvfile, delimiter=DELIMITER, quotechar=QUOTE_CHAR)
+
+            # If CSV has a header, skip one line.
+            if HAS_HEADER:
+                reader.next()
+
+            for row in reader:
+                for card_type in card_types:
+
+                    # Instantiate class dynamically.
+                    class_ = getattr(card_type, card_type.__name__.split(".")[-1])
+                    card = class_(card_options[card_type.__name__], row)
+
+                    if card_array.has_key(card_type):
+                        card_array[card_type] += [card]
+                    else:
+                        card_array[card_type] = [card]
+        
+        # Dump cards.
+        for key in card_array:
+            card_array[key][0].dump_cards(output_dir, res, card_array[key])
+
+        logger.info("Done!")
+        logger.info("Execute `generate_pdfs.sh` in the LaTeX directory to generate PDFs.")
+
+    except Exception as e:
+        logger.error("Failed to render the files:")
+        logger.error(str(e))
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description='Generate TeX and CSV flah cards from csv.')
-    parser.add_argument('-c', '--config', type=str, help='relative path to the configuration file')
+    parser.add_argument('-c', '--config', type=str, required=True, help='path to the configuration file')
     args = parser.parse_args()
     run(args)

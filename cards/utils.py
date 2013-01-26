@@ -1,4 +1,79 @@
-#!/usr/bin/python
+"""
+This program is free software: you can redistribute it and/or modify
+it under the terms of the GNU General Public License as published by
+the Free Software Foundation, either version 3 of the License, or
+(at your option) any later version.
+
+This program is distributed in the hope that it will be useful,
+but WITHOUT ANY WARRANTY; without even the implied warranty of
+MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+GNU General Public License for more details.
+
+You should have received a copy of the GNU General Public License
+along with this program.  If not, see <http://www.gnu.org/licenses/>.
+"""
+
+import  os
+
+def render_string(mask, fields, row):
+    # Check that we have enough values)
+    if len(row) < max(fields) + 1:
+        raise ValueError("Mask `%s` specifies field `%s`, but row `%s` only has `%s` elements" % (mask, str(max(fields)), str(row), str(len(row)) ))
+
+    vals = []
+    for field in fields:
+        vals.append(row[field])
+
+    # Convert to tuple and substitute.
+    vals = tuple(vals)
+    
+    string = mask % vals
+    string = string.decode("utf-8")
+    return string
+
+def parse_mappings(options, card_class):
+    fields = card_class.OPTIONS
+
+    card_options = {}
+    # Check for mandatory fields.
+    for fld in fields:
+        if not options.has_key(fld):
+            raise ValueError("Option `%s` is mandatory for `%s` card type, but is absent from the config file." % (fld, card_class.__name__))
+        else:
+            if fld == "filename_field":
+                try:
+                    int(options[fld])
+                except:
+                    raise ValueError('Option `%s` for card type `%s` should be an integer.' % (fld, card_class.__name__))
+
+                card_options["filename_field"] = int(options[fld])
+
+            # Make sure every _fields has a matching _mask
+            elif fld.endswith("_fields"):
+                if not (fld.split("_fields")[0] + "_mask") in fields:
+                    raise ValueError('Option `%s` for card type `%s` must have a matching mask option.' % (fld, card_class.__name__))
+
+                # Validate the _fields field. First, try split the list of fields.
+                p_int = []
+                try:
+                    integers = options[fld].split(",")
+                    for i in integers:
+                        p_int.append(int(i))
+                    card_options[fld] = p_int
+                except:
+                    raise ValueError('Option `%s` for card type `%s` is not a valid list of integers.' % (fld, card_class.__name__))                    
+
+                # Second, make sure the mask has as many %s as we have fields.
+                mask = str(options[fld.split("_fields")[0] + "_mask"])
+                if mask.count("%s") != len(p_int):
+                    raise ValueError('Option `%s` for card type `%s` number of fields doesn\'t match the number of placeholders in the mask' %  \
+                    (fld, card_class.__name__))
+
+            else:
+                card_options[fld] = options[fld]
+
+    return card_options
+
 
 def convert_str(string, b_left, b_right, i_left, i_right, u_left, u_right):
     """Replaces meta characters *, _, $ with appropriate substitutes, \ is
@@ -51,9 +126,15 @@ def convert_str(string, b_left, b_right, i_left, i_right, u_left, u_right):
         else:
             new_string += curr_char
 
-        
-
     return new_string
+
+def get_abs_path(path, prefix):
+    """Returns `path` if it's absolute, returns path + prefix if `path` is
+       relative."""
+    if os.path.isabs(path):
+        return path
+    else:
+        return os.path.normpath(os.path.join(prefix, path))
 
 if __name__ == "__main__":
     print convert_str('$header', '*', '*', '$', '$', '_', '_')
