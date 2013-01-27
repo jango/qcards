@@ -41,12 +41,12 @@ class CSVCard:
         for prop in self.card_props:
             self.card_props[prop] = convert_str(
                 self.card_props[prop],
-                r'<span style="font-weight:600;">',
-                r'</span>',
-                r'<span style="text-decoration: italic;">',
-                r'</span>',
-                r'<span style="text-decoration: underline;">',
-                r'</span>'
+                r'<b>',
+                r'</b>',
+                r'<i>',
+                r'</i>',
+                r'<u>',
+                r'</u>'
             )
 
         return [self.card_props["card_front"], self.card_props["card_back"]]

@@ -49,10 +49,10 @@ class LaTeXCard:
         for prop in self.card_props:
             self.card_props[prop] = convert_str(
                 self.card_props[prop],
+                r'{\bf ',
+                r'}',
                 r'\emph{',
                 r'}',
-                r'{\bf ',
-                r'\1}',
                 r'\underline{',
                 r'}'
             )
